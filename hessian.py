@@ -1,6 +1,5 @@
 import sys
 import torch
-import scipy
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,27 +20,27 @@ class Hessian:
                  init_poly_deg=None,
                  poly_deg=None,
                  poly_points=None,
-                 power_method_iters=None,
+                 SSI_iters=None,
                  class_list=None,
                  vecs=[],
                  vals=[],
                  ):
         
-        self.crit                = crit
-        self.loader              = loader
-        self.device              = device
-        self.model               = model
-        self.num_classes         = num_classes
-        self.hessian_type        = hessian_type
-        self.double              = double
-        self.spectrum_margin     = spectrum_margin
-        self.init_poly_deg       = init_poly_deg
-        self.poly_deg            = poly_deg
-        self.poly_points         = poly_points
-        self.power_method_iters  = power_method_iters
-        self.class_list          = class_list
-        self.vecs                = vecs
-        self.vals                = vals
+        self.crit                  = crit
+        self.loader                = loader
+        self.device                = device
+        self.model                 = model
+        self.num_classes           = num_classes
+        self.hessian_type          = hessian_type
+        self.double                = double
+        self.spectrum_margin       = spectrum_margin
+        self.init_poly_deg         = init_poly_deg
+        self.poly_deg              = poly_deg
+        self.poly_points           = poly_points
+        self.SSI_iters             = SSI_iters
+        self.class_list            = class_list
+        self.vecs                  = vecs
+        self.vals                  = vals
         
         for i in range(len(self.vecs)):
             self.vecs[i] = self.my_device(self.vecs[i])
@@ -243,7 +242,7 @@ class Hessian:
         print('Lanczos Method')
         
         lb, ub = self.compute_lb_ub()
-        print('estimated spectrum range:')
+        print('Estimated spectrum range:')
         print('[{}\t{}]'.format(lb, ub))
         
         margin = self.spectrum_margin*(ub - lb)
@@ -251,7 +250,7 @@ class Hessian:
         lb -= margin
         ub += margin
         
-        print('spectrum range after adding margin:')
+        print('Spectrum range after adding margin:')
         print('[{}\t{}]'.format(lb, ub))
         
         self.c = (lb + ub)/2
@@ -315,7 +314,7 @@ class Hessian:
         v_prev = None
         
         for j in range(M):
-            print('j: {}'.format(j))
+            print('Iteration: [{}/{}]'.format(j+1, M))
                 
             sys.stdout.flush()
             
@@ -335,10 +334,10 @@ class Hessian:
             v_prev = v
             v = v_next
             
-        ritzVal, S = scipy.linalg.eigh_tridiagonal(alp.cpu().numpy(),
-                                                   bet.cpu().numpy()[:-1])
+        B = np.diag(alp.cpu().numpy()) + np.diag(bet.cpu().numpy()[:-1], k=1) + np.diag(bet.cpu().numpy()[:-1], k=-1)
+        ritz_val, S = np.linalg.eigh(B)
         
-        return ritzVal, S, alp, bet
+        return ritz_val, S, alp, bet
     
     # compute top-C eigenvalues and eigenvectors using subspace iteration
     def SubspaceIteration(self):
@@ -352,8 +351,8 @@ class Hessian:
         
         Q, _ = self.QR(V, n)
         
-        for iter in range(self.power_method_iters):
-            print('power method iteration: ', iter)
+        for iter in range(self.SSI_iters):
+            print('Iteration: [{}/{}]'.format(iter+1, self.SSI_iters))
             sys.stdout.flush()
             
             V = self.mat_mat(Q)
@@ -389,7 +388,7 @@ class Hessian:
     
     # compute delta_{c,c'}
     def compute_delta_c_cp(self):
-        print("Computing \delta_{c,c'}")
+        print("Computing delta_{c,c'}")
         
         if self.hessian_type != 'G':
             raise Exception('Works only for G!')
@@ -424,7 +423,7 @@ class Hessian:
             target = Variable(target)
             
             f = self.model(input)
-                
+            
             prob = F.softmax(f,dim=1)
             
             for idx_c, c in enumerate(class_list):
@@ -464,7 +463,6 @@ class Hessian:
     
     # compute G decomposition
     def compute_G_decomp(self, mu_ccp_only=False, mu_only=False, plot_only=False):
-        print('Computing G decomposition')
         
         # compute delta_{c,c'}
         mu_ccp = self.compute_delta_c_cp()
@@ -480,6 +478,7 @@ class Hessian:
             return {'mu_ccp' : mu_ccp}
         
         # compute delta_c
+        print("Computing delta_c")
         mu = []
         for c in range(C):
             s = self.my_zero()
@@ -495,6 +494,7 @@ class Hessian:
         # compute distances between {delta_c}_c and {delta_{c,c'}}_{c,c'}
         # (a total of C+C**2 elements)
         # these distances will later be passed to t-SNE
+        print("Computing distances for t-SNE plot")
         V = []
         labels = []
         for c in range(C):
@@ -508,9 +508,10 @@ class Hessian:
         N = C+C**2
         dist = np.zeros([N, N])
         for c in range(N):
+            print('Iteration: [{}/{}]'.format(c+1, N))
             for c_ in range(N):
                 dist[c,c_] = self.my_norm(self.my_sub(V[c], V[c_]))**2
-                
+        
         if plot_only:
             return {'dist'      : dist,
                     'labels'    : labels}
@@ -521,6 +522,7 @@ class Hessian:
             mu_cc.append(mu_ccp[c][c])
             
         # compute G0
+        print("Computing G0")
         mu_cc_T_mu_cc = np.zeros([C, C])
         for c in range(C):
             for c_ in range(C):
@@ -529,6 +531,7 @@ class Hessian:
         G0_eigval = sorted(G0_eigval, reverse=True)
         
         # compute G1
+        print("Computing G1")
         muTmu = np.zeros([C, C])
         for c in range(C):
             for c_ in range(C):
@@ -537,6 +540,7 @@ class Hessian:
         G1_eigval = sorted(G1_eigval, reverse=True)
 
         # compute G1+2
+        print("Computing G1+2")
         mu_ccp_T_mu_ccp = np.zeros([C**2, C**2])
         for c in range(C**2):
             for c_ in range(C**2):
@@ -545,6 +549,7 @@ class Hessian:
         G12_eigval = sorted(G12_eigval, reverse=True)
                 
         # compute G_2
+        print("Computing G2")
         nu = []
         for c in range(C):
             nu.append([])
@@ -588,5 +593,8 @@ class Hessian:
                 }
         
         return res
-            
+    
+    
+
+
     
