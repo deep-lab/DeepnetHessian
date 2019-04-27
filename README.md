@@ -7,7 +7,7 @@ For inquiries, please contact papyan@stanford.edu
   * VGG11, ResNet18, DenseNet40
   * MNIST, FashionMNIST, CIFAR10, CIFAR100
   * Various sample sizes
-* Approximate spectrum using the method proposed in https://arxiv.org/abs/1811.07062
+* Approximate spectrum using the method presented in https://arxiv.org/abs/1811.07062
 * Compute three-level hierarchical structure using the method proposed in this paper
 
 ## Usage
